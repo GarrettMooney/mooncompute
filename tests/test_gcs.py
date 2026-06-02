@@ -1,7 +1,7 @@
 import polars as pl
 import pytest
 
-from dswkit.gcp import gcs
+from mooncompute.gcp import gcs
 from tests.fakes import FakeStorageClient
 
 

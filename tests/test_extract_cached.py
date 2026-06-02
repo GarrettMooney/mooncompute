@@ -4,7 +4,7 @@ from decimal import Decimal
 import polars as pl
 import pyarrow as pa
 
-from dswkit.gcp import bq
+from mooncompute.gcp import bq
 from tests.fakes import FakeBQClient
 
 

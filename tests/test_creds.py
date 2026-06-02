@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from dswkit.gcp import _creds
+from mooncompute.gcp import _creds
 
 
 def test_noop_when_no_env(monkeypatch, tmp_path):

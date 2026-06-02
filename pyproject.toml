@@ -1,8 +1,12 @@
 [project]
-name = "dswkit"
+name = "mooncompute"
 version = "0.1.0"
-description = "Shared GCP data-access helpers for Designer Brands marketing data science."
+description = "Ergonomic GCP data-access helpers: BigQuery <-> polars, GCS, and a SQL-hash parquet cache."
+readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Garrett Mooney" }]
+keywords = ["bigquery", "polars", "gcs", "google-cloud", "arrow"]
 dependencies = [
     "polars>=1.0",
     "pyarrow>=15",
@@ -11,12 +15,16 @@ dependencies = [
     "db-dtypes>=1.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/garrettmooney/mooncompute"
+Repository = "https://github.com/garrettmooney/mooncompute"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/dswkit"]
+packages = ["src/mooncompute"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

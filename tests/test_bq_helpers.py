@@ -1,11 +1,23 @@
 import polars as pl
+import pytest
 
-from dswkit.gcp import bq
+from mooncompute.gcp import bq
 
 
-def test_project_constants():
-    assert bq.PROJECT_DEV == "gcp-dsw-data-lake-dev"
-    assert bq.PROJECT_PROD == "gcp-dsw-data-lake-prod"
+def test_resolve_project_explicit_wins(monkeypatch):
+    monkeypatch.setenv(bq.PROJECT_ENV, "from-env")
+    assert bq._resolve_project("explicit") == "explicit"
+
+
+def test_resolve_project_falls_back_to_env(monkeypatch):
+    monkeypatch.setenv(bq.PROJECT_ENV, "from-env")
+    assert bq._resolve_project(None) == "from-env"
+
+
+def test_resolve_project_raises_when_unset(monkeypatch):
+    monkeypatch.delenv(bq.PROJECT_ENV, raising=False)
+    with pytest.raises(ValueError):
+        bq._resolve_project(None)
 
 
 def test_read_sql_plain(tmp_path):

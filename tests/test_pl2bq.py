@@ -3,7 +3,7 @@ from typing import cast
 import polars as pl
 from google.cloud import bigquery
 
-from dswkit.gcp import bq
+from mooncompute.gcp import bq
 from tests.fakes import FakeBQClient
 
 

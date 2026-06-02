@@ -2,8 +2,7 @@
 
 from . import gcs
 from .bq import (
-    PROJECT_DEV,
-    PROJECT_PROD,
+    PROJECT_ENV,
     bq2pl,
     extract_cached,
     pl2bq,
@@ -16,6 +15,5 @@ __all__ = [
     "extract_cached",
     "pl2bq",
     "read_sql",
-    "PROJECT_DEV",
-    "PROJECT_PROD",
+    "PROJECT_ENV",
 ]

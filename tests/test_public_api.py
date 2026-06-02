@@ -1,4 +1,4 @@
-import dswkit.gcp as gcp
+import mooncompute.gcp as gcp
 
 
 def test_public_surface():
@@ -7,8 +7,7 @@ def test_public_surface():
         "extract_cached",
         "pl2bq",
         "read_sql",
-        "PROJECT_DEV",
-        "PROJECT_PROD",
+        "PROJECT_ENV",
     ):
         assert hasattr(gcp, name), name
     assert hasattr(gcp.gcs, "read_parquet")

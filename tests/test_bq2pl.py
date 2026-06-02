@@ -5,7 +5,7 @@ import polars as pl
 import pyarrow as pa
 from google.cloud import bigquery
 
-from dswkit.gcp import bq
+from mooncompute.gcp import bq
 from tests.fakes import FakeBQClient
 
 
