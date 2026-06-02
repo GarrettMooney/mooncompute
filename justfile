@@ -21,3 +21,11 @@ ci:
     uv run ruff check .
     uv run ty check
     uv run pytest -q
+
+# Run all pre-commit hooks over the tree (prek = fast pre-commit, no install)
+pc:
+    uvx prek run --all-files
+
+# Install the git pre-commit hook so it runs on every commit
+pc-install:
+    uvx prek install
