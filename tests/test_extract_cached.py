@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import polars as pl
@@ -64,3 +65,36 @@ def test_manifestless_parquet_is_adopted(monkeypatch, tmp_path):
     assert client.queries == []
     assert df["amt"].to_list() == [9.0]
     assert (tmp_path / "x.parquet.manifest.json").exists()
+
+
+def _age_manifest(tmp_path, delta: timedelta) -> None:
+    mpath = tmp_path / "x.parquet.manifest.json"
+    data = json.loads(mpath.read_text())
+    data["written_at"] = (datetime.now(UTC) - delta).isoformat(timespec="seconds")
+    mpath.write_text(json.dumps(data))
+
+
+def test_max_age_expired_requeries(monkeypatch, tmp_path):
+    cache = tmp_path / "x.parquet"
+    first = FakeBQClient(project="p", table=_table())
+    _patch_client(monkeypatch, first)
+    bq.extract_cached("SELECT 1", cache, project="p")
+
+    _age_manifest(tmp_path, timedelta(hours=2))
+
+    second = FakeBQClient(project="p", table=_table())
+    _patch_client(monkeypatch, second)
+    bq.extract_cached("SELECT 1", cache, project="p", max_age=timedelta(hours=1))
+    assert second.queries == ["SELECT 1"]  # expired -> re-queried
+
+
+def test_max_age_fresh_served_from_cache(monkeypatch, tmp_path):
+    cache = tmp_path / "x.parquet"
+    first = FakeBQClient(project="p", table=_table())
+    _patch_client(monkeypatch, first)
+    bq.extract_cached("SELECT 1", cache, project="p")
+
+    second = FakeBQClient(project="p", table=_table())
+    _patch_client(monkeypatch, second)
+    bq.extract_cached("SELECT 1", cache, project="p", max_age=timedelta(hours=1))
+    assert second.queries == []  # within max_age -> served from cache

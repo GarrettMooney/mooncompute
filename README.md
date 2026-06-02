@@ -39,11 +39,17 @@ from mooncompute.gcp import bq, gcs
 # query -> polars (Decimal columns cast to Float64 by default)
 df = bq.bq2pl("SELECT * FROM `proj.ds.tbl` LIMIT 10", project="my-project")
 
-# SQL-hash-keyed parquet cache: re-queries only when the SQL changes
+# SQL-hash-keyed parquet cache: re-queries only when the SQL changes.
+# Invalidation is content-based, so this is for deterministic queries (e.g.
+# pinned to a snapshot date). For a live/relative query, pass max_age to
+# re-query past a TTL, or use bq2pl for an always-live read.
+from datetime import timedelta
+
 df = bq.extract_cached(
     bq.read_sql("features.sql", snapshot="2024-10-01"),
     Path("data/features.parquet"),
     project="my-project",
+    max_age=timedelta(hours=12),  # optional; omit for content-only invalidation
 )
 
 # polars -> BQ (ARRAY columns handled via enable_list_inference)

@@ -7,7 +7,7 @@ import io
 import json
 import os
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
@@ -105,18 +105,39 @@ class Manifest:
         path.write_text(json.dumps(asdict(self), indent=2) + "\n")
 
 
+def _fmt_age(td: timedelta) -> str:
+    s = int(td.total_seconds())
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m"
+    if s < 86400:
+        return f"{s // 3600}h"
+    return f"{s // 86400}d"
+
+
 def extract_cached(
     sql: str,
     cache: str | Path,
     *,
     project: str | None = None,
     name: str = "",
+    max_age: timedelta | None = None,
 ) -> pl.DataFrame:
     """Return parquet at `cache`, querying BQ on cache-miss or SQL change.
 
     Cache is valid iff `<cache>.manifest.json` exists and its sql_sha256
     matches the current SQL. A parquet without a manifest is adopted on first
     read (trusted, manifest written from current SQL).
+
+    **Determinism contract.** Invalidation is content-based: the cache is keyed
+    on the SQL text, not on a clock or on the data. This is correct only for a
+    deterministic query (e.g. one pinned to a fixed `snapshot_date`), where the
+    same SQL must return the same rows. For a non-deterministic query (one using
+    `CURRENT_DATE()`, a relative window, or a live table), identical SQL maps to
+    a stable cache while the data drifts, so the cache will serve stale results.
+    For those, pass `max_age` (re-query once the cache is older than it) or use
+    `bq2pl` for an always-live read.
 
     Note: the cache is a local file. In ephemeral environments (containers,
     Cloud Functions) it does not persist across runs; prefer `gcs.*` for
@@ -129,11 +150,23 @@ def extract_cached(
 
     if cache.exists():
         if manifest.exists():
-            if Manifest.load(manifest).sql_sha256 == _sql_hash(sql):
-                df = pl.read_parquet(cache)
-                print(f"  [{label}] cached: {cache.name}  rows={df.height:,}")
-                return df
-            print(f"  [{label}] SQL changed since cache; re-extracting -> {cache.name}")
+            m = Manifest.load(manifest)
+            if m.sql_sha256 == _sql_hash(sql):
+                age = datetime.now(UTC) - datetime.fromisoformat(m.written_at)
+                if max_age is not None and age > max_age:
+                    print(
+                        f"  [{label}] cache expired (age {_fmt_age(age)} "
+                        f"> {_fmt_age(max_age)}); re-extracting -> {cache.name}"
+                    )
+                else:
+                    df = pl.read_parquet(cache)
+                    print(
+                        f"  [{label}] cached (age {_fmt_age(age)}): "
+                        f"{cache.name}  rows={df.height:,}"
+                    )
+                    return df
+            else:
+                print(f"  [{label}] SQL changed; re-extracting -> {cache.name}")
         else:
             df = pl.read_parquet(cache)
             print(f"  [{label}] adopting existing cache (no manifest): {cache.name}")

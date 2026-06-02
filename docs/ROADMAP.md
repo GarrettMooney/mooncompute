@@ -4,6 +4,16 @@ v1 (v0.1.0): `mooncompute.gcp` only. bq2pl, extract_cached, pl2bq, read_sql,
 gcs read/write, creds materialization. Project resolved from `project=` or
 `$GOOGLE_CLOUD_PROJECT`.
 
+## Unreleased (on main, since v0.1.0)
+
+- `extract_cached` gained an opt-in `max_age` TTL: re-query when the cached
+  manifest's `written_at` is older than the given `timedelta`. Default stays
+  content-only (no TTL), correct for pinned-snapshot queries. The hit log now
+  shows cache age, and the docstring states the determinism contract (the
+  cache is for deterministic SQL; live/relative queries need `max_age` or
+  `bq2pl`). Deliberately did NOT add a source-table `last_modified_time`
+  freshness check: boring TTL over the impressive-but-fragile option.
+
 ## v0.2 (planned): GCP-deploy ergonomics
 
 Driven by the Cloud Function / Kubeflow usability review. None of these change
