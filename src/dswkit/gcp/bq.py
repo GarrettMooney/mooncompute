@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import polars as pl
@@ -58,4 +60,63 @@ def bq2pl(
     df = pl.from_arrow(arrow)
     if decimals_to_float:
         df = _decimals_to_float(df)
+    return df
+
+
+def _manifest_path(cache: Path) -> Path:
+    return cache.with_suffix(cache.suffix + ".manifest.json")
+
+
+def _write_manifest(cache: Path, sql: str, project: str, df: pl.DataFrame) -> None:
+    manifest = {
+        "sql_sha256": _sql_hash(sql),
+        "project": project,
+        "rows": df.height,
+        "size_bytes": cache.stat().st_size,
+        "written_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    _manifest_path(cache).write_text(json.dumps(manifest, indent=2) + "\n")
+
+
+def extract_cached(
+    sql: str,
+    cache: str | Path,
+    *,
+    project: str = PROJECT_PROD,
+    name: str = "",
+) -> pl.DataFrame:
+    """Return parquet at `cache`, querying BQ on cache-miss or SQL change.
+
+    Cache is valid iff `<cache>.manifest.json` exists and its sql_sha256
+    matches the current SQL. A parquet without a manifest is adopted on first
+    read (trusted, manifest written from current SQL). Generalized from
+    predictive-clv/clv/cache.py:read_or_extract.
+    """
+    cache = Path(cache)
+    label = name or cache.name
+    manifest = _manifest_path(cache)
+
+    if cache.exists():
+        if manifest.exists():
+            stored = json.loads(manifest.read_text()).get("sql_sha256")
+            if stored == _sql_hash(sql):
+                df = pl.read_parquet(cache)
+                print(f"  [{label}] cached: {cache.name}  rows={df.height:,}")
+                return df
+            print(f"  [{label}] SQL changed since cache; re-extracting -> {cache.name}")
+        else:
+            df = pl.read_parquet(cache)
+            print(f"  [{label}] adopting existing cache (no manifest): {cache.name}")
+            _write_manifest(cache, sql, project, df)
+            return df
+
+    client = _client(project)
+    print(f"  [{label}] querying BQ -> {cache.name}")
+    arrow = client.query(sql).to_arrow(create_bqstorage_client=True)
+    df = _decimals_to_float(pl.from_arrow(arrow))
+    df.write_parquet(cache)
+    _write_manifest(cache, sql, client.project, df)
+    print(
+        f"  [{label}] wrote {df.height:,} rows  ({cache.stat().st_size / 1e9:.2f} GB)"
+    )
     return df
