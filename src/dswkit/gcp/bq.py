@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -120,3 +121,32 @@ def extract_cached(
         f"  [{label}] wrote {df.height:,} rows  ({cache.stat().st_size / 1e9:.2f} GB)"
     )
     return df
+
+
+def pl2bq(
+    df: pl.DataFrame,
+    *,
+    project: str,
+    dataset: str,
+    table: str,
+) -> None:
+    """Load a polars DataFrame into a BQ table via a Parquet load job.
+
+    Always sets enable_list_inference=True so ARRAY columns load correctly.
+    """
+    materialize_gcp_creds()
+    client = bigquery.Client(project=project)
+    destination = f"{project}.{dataset}.{table}"
+    with io.BytesIO() as stream:
+        df.write_parquet(stream)
+        stream.seek(0)
+        parquet_options = bigquery.ParquetOptions()
+        parquet_options.enable_list_inference = True
+        job = client.load_table_from_file(
+            stream,
+            destination=destination,
+            project=project,
+            source_format=bigquery.SourceFormat.PARQUET,
+            parquet_options=parquet_options,
+        )
+    job.result()
