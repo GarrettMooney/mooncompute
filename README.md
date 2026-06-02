@@ -35,8 +35,44 @@ df = gcs.read_parquet("gs://gcp-dsw-data-lake-dev-garrett/out.parquet")
 
 v1 ships `dswkit.gcp` only. Modal, LLM/eval, and run-utils tiers may follow
 once this proves adoption. See the design spec in the work repo:
-`docs/superpowers/specs/2026-06-02-dswkit-design.md`.
+`docs/superpowers/specs/2026-06-02-dswkit-design.md`. Planned changes are in
+`docs/ROADMAP.md`.
+
+## Deploying on GCP
+
+dswkit is happiest baked into a container. ADC comes from the workload's
+service account, so `materialize_gcp_creds` no-ops and the BQ/GCS clients just
+work.
+
+Recommended path (Cloud Run service or job, Vertex custom job, KFP container
+component): install the package at image-build time, where the Azure PAT is
+available, then push to Artifact Registry / GCR.
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM python:3.11-slim
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+# PAT supplied as a build secret, never baked into a layer
+RUN --mount=type=secret,id=azpat \
+    pip install "git+https://$(cat /run/secrets/azpat)@dev.azure.com/designerbrands/IT/_git/dswkit@v0.1.0"
+```
+
+Build with `--platform linux/amd64` and `--secret id=azpat,src=...`.
+
+Caveats by target:
+
+- **Cloud Run** (service or job): best fit. Container path above, no install-auth
+  or cold-start concerns.
+- **KFP lightweight components** (`packages_to_install=[...]`): the install
+  happens in-pod at runtime and needs the Azure PAT injected there. Prefer a
+  container component instead.
+- **Cloud Functions**: weakest fit. The deploy buildpack has no Azure PAT (so the
+  private git install fails), polars + pyarrow add real cold-start cost, and
+  `extract_cached`'s parquet cache only lives in ephemeral `/tmp`. For GCP-native
+  installs without a PAT, mirror dswkit to an Artifact Registry Python repo (see
+  ROADMAP).
 
 ## Develop
 
-    uv run pytest
+    just            # fmt + lint + typecheck + test
+    just ci         # non-mutating gate (check formatting, lint, typecheck, test)
