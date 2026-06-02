@@ -1,4 +1,7 @@
+from typing import cast
+
 import polars as pl
+from google.cloud import bigquery
 
 from dswkit.gcp import bq
 from tests.fakes import FakeBQClient
@@ -11,7 +14,7 @@ def test_pl2bq_enables_list_inference_and_targets_table():
         project="my-proj",
         dataset="ds",
         table="tbl",
-        client=client,
+        client=cast(bigquery.Client, client),
     )
 
     assert len(client.load_calls) == 1

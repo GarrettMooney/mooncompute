@@ -5,8 +5,9 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import polars as pl
 from google.cloud import bigquery
@@ -58,7 +59,7 @@ def bq2pl(
     """
     client = client or _client(project)
     arrow = client.query(sql).to_arrow(create_bqstorage_client=True)
-    df = pl.from_arrow(arrow)
+    df = cast(pl.DataFrame, pl.from_arrow(arrow))
     if decimals_to_float:
         df = _decimals_to_float(df)
     return df
@@ -74,7 +75,7 @@ def _write_manifest(cache: Path, sql: str, project: str, df: pl.DataFrame) -> No
         "project": project,
         "rows": df.height,
         "size_bytes": cache.stat().st_size,
-        "written_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "written_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
     _manifest_path(cache).write_text(json.dumps(manifest, indent=2) + "\n")
 
@@ -114,7 +115,7 @@ def extract_cached(
     client = _client(project)
     print(f"  [{label}] querying BQ -> {cache.name}")
     arrow = client.query(sql).to_arrow(create_bqstorage_client=True)
-    df = _decimals_to_float(pl.from_arrow(arrow))
+    df = _decimals_to_float(cast(pl.DataFrame, pl.from_arrow(arrow)))
     df.write_parquet(cache)
     _write_manifest(cache, sql, client.project, df)
     print(
