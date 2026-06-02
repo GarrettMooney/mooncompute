@@ -1,3 +1,6 @@
+import ".just/commit.just"
+import ".just/ship.just"
+
 default: check
 
 # Format, lint (with fixes), type-check, and test
