@@ -14,6 +14,26 @@ gcs read/write, creds materialization. Project resolved from `project=` or
   `bq2pl`). Deliberately did NOT add a source-table `last_modified_time`
   freshness check: boring TTL over the impressive-but-fragile option.
 
+- **`extract_cached` now requires an explicit invalidation mode (breaking).**
+  A bare call raises `ValueError`; the caller must pass `content_only=True`
+  (deterministic/pinned query, SQL-change-only invalidation) or
+  `max_age=<timedelta>` (live/relative query, TTL). The two are mutually
+  exclusive. This makes the silent-stale-cache footgun a deliberate opt-in
+  rather than the default — fail-closed on ambiguous intent.
+
+- Hardened the stateful edges (good-system-design review):
+  - **Cache fails open.** A corrupt/unreadable parquet logs a warning and
+    re-queries BQ instead of raising. The cache is a derived artifact, never a
+    source of truth, so it must not be able to harden a failure.
+  - **Atomic cache writes.** Parquet and manifest are written to a temp
+    sibling then `os.replace`d, so a crash mid-write leaves the previous cache
+    intact rather than a truncated file.
+  - **`pl2bq` accepts a `job_id` idempotency key.** A retried load with the
+    same id is a no-op (BQ rejects duplicate job ids) instead of a double-load.
+  - **Logging, not `print`.** `bq` emits via a module logger so consumers
+    control verbosity; unhappy paths (cache miss/expiry/SQL change/corruption)
+    are logged, not just the happy path.
+
 ## v0.2 (planned): GCP-deploy ergonomics
 
 Driven by the Cloud Function / Kubeflow usability review. None of these change
