@@ -129,24 +129,27 @@ def pl2bq(
     project: str,
     dataset: str,
     table: str,
+    client: bigquery.Client | None = None,
 ) -> None:
     """Load a polars DataFrame into a BQ table via a Parquet load job.
 
     Always sets enable_list_inference=True so ARRAY columns load correctly.
+    Pass a project (a client is built internally) or your own client.
     """
-    materialize_gcp_creds()
-    client = bigquery.Client(project=project)
+    client = client or _client(project)
     destination = f"{project}.{dataset}.{table}"
+    job_config = bigquery.LoadJobConfig()
+    job_config.source_format = bigquery.SourceFormat.PARQUET
+    parquet_options = bigquery.ParquetOptions()
+    parquet_options.enable_list_inference = True
+    job_config.parquet_options = parquet_options
     with io.BytesIO() as stream:
         df.write_parquet(stream)
         stream.seek(0)
-        parquet_options = bigquery.ParquetOptions()
-        parquet_options.enable_list_inference = True
         job = client.load_table_from_file(
             stream,
-            destination=destination,
+            destination,
             project=project,
-            source_format=bigquery.SourceFormat.PARQUET,
-            parquet_options=parquet_options,
+            job_config=job_config,
         )
     job.result()

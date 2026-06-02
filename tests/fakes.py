@@ -83,6 +83,6 @@ class FakeBQClient:
         self.queries.append(sql)
         return FakeQueryJob(self._table)
 
-    def load_table_from_file(self, stream, **kwargs) -> FakeLoadJob:
-        self.load_calls.append(kwargs)
+    def load_table_from_file(self, stream, destination=None, **kwargs) -> FakeLoadJob:
+        self.load_calls.append({"destination": destination, **kwargs})
         return FakeLoadJob()
