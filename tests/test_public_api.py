@@ -19,6 +19,8 @@ def test_top_level_gcp_reexport():
 
     assert hasattr(mooncompute, "gcp")
     assert "gcp" in dir(mooncompute)
+    # the re-export is declared, not just an import side-effect
+    assert "gcp" in mooncompute.__all__
     assert hasattr(mooncompute.gcp, "bq2pl")
     from mooncompute import gcp
 
