@@ -12,3 +12,20 @@ def test_public_surface():
         assert hasattr(gcp, name), name
     assert hasattr(gcp.gcs, "read_parquet")
     assert hasattr(gcp.gcs, "write_parquet")
+
+
+def test_top_level_gcp_reexport():
+    import mooncompute
+
+    assert hasattr(mooncompute, "gcp")
+    assert "gcp" in dir(mooncompute)
+    assert hasattr(mooncompute.gcp, "bq2pl")
+    from mooncompute import gcp
+
+    assert gcp is mooncompute.gcp
+
+
+def test_version_still_exposed():
+    import mooncompute
+
+    assert isinstance(mooncompute.__version__, str)
