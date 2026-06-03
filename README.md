@@ -23,8 +23,17 @@ uv add mooncompute
 
 ## Configuration
 
-Functions that build a client need a GCP project. Pass `project=` explicitly,
-or set `GOOGLE_CLOUD_PROJECT` (the gcloud SDK already sets this) and omit it.
+The common path: set `GOOGLE_CLOUD_PROJECT` once and omit `project=` everywhere.
+The gcloud SDK already sets it, so on a configured machine there is nothing to
+do; otherwise:
+
+```sh
+export GOOGLE_CLOUD_PROJECT=my-project
+```
+
+Pass `project=` on any call to override it (e.g. multi-project work). A call
+that is given neither an explicit `project=` nor the env var raises.
+
 Credentials use Application Default Credentials; in a Modal container, set a
 `GOOGLE_APPLICATION_CREDENTIALS_JSON` secret and it is materialized to ADC
 automatically.
@@ -36,8 +45,8 @@ from pathlib import Path
 
 from mooncompute.gcp import bq, gcs
 
-# query -> polars (Decimal columns cast to Float64 by default)
-df = bq.bq2pl("SELECT * FROM `proj.ds.tbl` LIMIT 10", project="my-project")
+# With GOOGLE_CLOUD_PROJECT set, calls need no project= (pass project= to override):
+df = bq.bq2pl("SELECT * FROM `proj.ds.tbl` LIMIT 10")
 
 # SQL-hash-keyed parquet cache. You must pick an invalidation mode; a bare
 # call raises. For a deterministic query (e.g. pinned to a snapshot date) pass
@@ -45,7 +54,6 @@ df = bq.bq2pl("SELECT * FROM `proj.ds.tbl` LIMIT 10", project="my-project")
 df = bq.extract_cached(
     bq.read_sql("features.sql", snapshot="2024-10-01"),
     Path("data/features.parquet"),
-    project="my-project",
     content_only=True,
 )
 
@@ -56,12 +64,11 @@ from datetime import timedelta
 df = bq.extract_cached(
     bq.read_sql("daily_active.sql"),
     Path("data/dau.parquet"),
-    project="my-project",
     max_age=timedelta(hours=12),
 )
 
 # polars -> BQ (ARRAY columns handled via enable_list_inference)
-bq.pl2bq(df, dataset="scratch", table="out", project="my-project")
+bq.pl2bq(df, dataset="scratch", table="out")
 
 # GCS round-trips over gs:// URIs
 gcs.write_parquet(df, "gs://my-bucket/out.parquet")
