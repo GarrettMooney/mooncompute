@@ -34,6 +34,13 @@ gcs read/write, creds materialization. Project resolved from `project=` or
     control verbosity; unhappy paths (cache miss/expiry/SQL change/corruption)
     are logged, not just the happy path.
 
+- **Consumer ergonomics (no API change).** Ship a `py.typed` marker so
+  consumers' type checkers see inline types; re-export the `gcp` tier from the
+  top-level package (`from mooncompute import gcp`); README now leads with
+  `$GOOGLE_CLOUD_PROJECT` so the common call path omits `project=`. The
+  top-level `gcp` re-export is eager for now; it becomes a lazy `__getattr__`
+  when the v0.2 extras/lazy-import split lands.
+
 ## v0.2 (planned): GCP-deploy ergonomics
 
 Driven by the Cloud Function / Kubeflow usability review. None of these change
