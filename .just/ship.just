@@ -2,8 +2,10 @@
 # Adapted from github.com/lmmx/polars-expr-hopper (.just/ship.just), minus the
 # echo-comment dependency and its temp-commit/soft-reset dance (uv version
 # --short already reads the bumped value). Tags keep the `v` prefix to match the
-# existing v0.1.0 tag and the CI workflow's `tags: ["v*"]` trigger. Once a PyPI
-# release workflow + trusted publisher are configured, the tag push publishes.
+# existing v0.1.0 tag and the CI workflow's `tags: ["v*"]` trigger. Pushing the
+# tag triggers .github/workflows/ci.yml, which publishes to PyPI via Trusted
+# Publishing (OIDC) -- no token. See docs/RELEASING.md for the release flow and
+# the one-time PyPI pending-publisher registration it depends on.
 
 # Bump (patch|minor|major), commit, tag vX.Y.Z, and push branch + tag
 release bump_level="patch":

@@ -7,12 +7,27 @@ requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "Garrett Mooney" }]
 keywords = ["bigquery", "polars", "gcs", "google-cloud", "arrow"]
-dependencies = [
+# Base install is intentionally dependency-free: it provides only the credential
+# helper and gs:// URI parsing (stdlib). Pull an extra for actual I/O so a
+# JSON/bytes-only consumer (e.g. a Cloud Function) never installs polars+pyarrow.
+dependencies = []
+
+[project.optional-dependencies]
+# BigQuery <-> polars. Also the home of polars+pyarrow, which the gcs parquet
+# helpers lazily require (install `mooncompute[bq,gcs]` for parquet on GCS).
+bq = [
     "polars>=1.0",
     "pyarrow>=15",
     "google-cloud-bigquery>=3.0",
-    "google-cloud-storage>=2.0",
     "db-dtypes>=1.0",
+]
+# GCS object I/O. JSON/bytes need only google-cloud-storage; parquet additionally
+# needs polars (lazily imported), so pair with `[bq]` for parquet.
+gcs = [
+    "google-cloud-storage>=2.0",
+]
+all = [
+    "mooncompute[bq,gcs]",
 ]
 
 [project.urls]
@@ -42,7 +57,10 @@ python-version = "3.11"
 include = ["src", "tests"]
 
 [dependency-groups]
+# Self-reference the extras so a bare `uv sync` (CI + local) installs the full
+# stack for tests; the published wheel still ships the extras as opt-in.
 dev = [
+    "mooncompute[bq,gcs]",
     "pytest>=8",
     "ruff>=0.15.14",
     "ty>=0.0.39",

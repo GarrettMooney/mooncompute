@@ -1,0 +1,46 @@
+name: Deploy Release
+
+# Manual release driver. Bumps the version, commits chore(release), tags, and
+# pushes -- which fans out to the CI workflow (via its workflow_run hook) to
+# build and publish to PyPI. The only human step is clicking "Run workflow".
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_level:
+        description: "Version bump"
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+
+jobs:
+  deploy-release:
+    name: Run just release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # Bump version, commit, tag, and push commit + tag. The tag push triggers
+      # the PyPI release via the CI workflow's workflow_run hook.
+      - name: Run just release
+        run: just release ${{ github.event.inputs.bump_level }}

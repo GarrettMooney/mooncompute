@@ -8,10 +8,6 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 
-[options]
-exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
-exclude-newer-span = "P7D"
-
 [[package]]
 name = "certifi"
 version = "2026.5.20"
@@ -487,16 +483,28 @@ wheels = [
 name = "mooncompute"
 version = "0.2.0"
 source = { editable = "." }
-dependencies = [
+
+[package.optional-dependencies]
+all = [
     { name = "db-dtypes" },
     { name = "google-cloud-bigquery" },
     { name = "google-cloud-storage" },
     { name = "polars" },
     { name = "pyarrow" },
 ]
+bq = [
+    { name = "db-dtypes" },
+    { name = "google-cloud-bigquery" },
+    { name = "polars" },
+    { name = "pyarrow" },
+]
+gcs = [
+    { name = "google-cloud-storage" },
+]
 
 [package.dev-dependencies]
 dev = [
+    { name = "mooncompute", extra = ["bq", "gcs"] },
     { name = "pytest" },
     { name = "ruff" },
     { name = "ty" },
@@ -504,15 +512,18 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "db-dtypes", specifier = ">=1.0" },
-    { name = "google-cloud-bigquery", specifier = ">=3.0" },
-    { name = "google-cloud-storage", specifier = ">=2.0" },
-    { name = "polars", specifier = ">=1.0" },
-    { name = "pyarrow", specifier = ">=15" },
+    { name = "db-dtypes", marker = "extra == 'bq'", specifier = ">=1.0" },
+    { name = "google-cloud-bigquery", marker = "extra == 'bq'", specifier = ">=3.0" },
+    { name = "google-cloud-storage", marker = "extra == 'gcs'", specifier = ">=2.0" },
+    { name = "mooncompute", extras = ["bq", "gcs"], marker = "extra == 'all'" },
+    { name = "polars", marker = "extra == 'bq'", specifier = ">=1.0" },
+    { name = "pyarrow", marker = "extra == 'bq'", specifier = ">=15" },
 ]
+provides-extras = ["bq", "gcs", "all"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "mooncompute", extras = ["bq", "gcs"] },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.15.14" },
     { name = "ty", specifier = ">=0.0.39" },

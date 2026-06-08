@@ -34,28 +34,36 @@ gcs read/write, creds materialization. Project resolved from `project=` or
     control verbosity; unhappy paths (cache miss/expiry/SQL change/corruption)
     are logged, not just the happy path.
 
-## v0.2 (planned): GCP-deploy ergonomics
+## v0.3: GCP-deploy ergonomics
 
 Driven by the Cloud Function / Kubeflow usability review. None of these change
 the public API.
 
-1. **Optional-dependency extras to cut weight.** Split the heavy deps so a
-   consumer that only needs JSON/bytes GCS I/O does not drag in polars +
-   pyarrow (tens of MB, real Cloud Function cold-start cost).
+1. **Optional-dependency extras to cut weight. (DONE, v0.3.0)** Heavy deps are
+   split so a consumer that only needs JSON/bytes GCS I/O does not drag in
+   polars + pyarrow (tens of MB, real Cloud Function cold-start cost).
    - `mooncompute[bq]`  -> polars, pyarrow, google-cloud-bigquery, db-dtypes
-   - `mooncompute[gcs]` -> google-cloud-storage (+ polars only for parquet)
-   - base install -> credential + URI helpers only
-   Pair this with **lazy-importing polars inside the parquet functions** in
-   `gcs.py` (currently imported at module top, so importing `mooncompute.gcp.gcs`
-   pulls polars even for `read_json`). The JSON/bytes path should stay light.
+   - `mooncompute[gcs]` -> google-cloud-storage (parquet additionally needs
+     polars from `[bq]`, lazily imported)
+   - `mooncompute[all]` -> `[bq,gcs]`
+   - base install -> credential + URI helpers only (no third-party deps)
+   polars is **lazy-imported inside the parquet functions** in `gcs.py`, and the
+   `gcp` package imports submodules lazily (PEP 562) so `import mooncompute.gcp`
+   pulls neither the BigQuery stack nor polars until a BigQuery helper is touched.
+   A `[gcs]`-only install can `from mooncompute.gcp import gcs` for JSON/bytes
+   with no polars present.
 
-2. **Publish to PyPI.** Once the extras split lands, `uv publish` so installs
-   are `uv add mooncompute` instead of the git URL. For private GCP-native
+2. **Publish to PyPI. (v0.3.0)** Releases publish via **Trusted Publishing
+   (OIDC)** from `.github/workflows/ci.yml` on a `v*` tag -- no API token stored
+   anywhere (methodology per microsoft/durabletask-python#139; test/CI/deploy
+   workflow split per the lmmx house style). After the one-time PyPI
+   pending-publisher registration (see `docs/RELEASING.md`), installs are
+   `uv add "mooncompute[bq]"` instead of the git URL. For private GCP-native
    installs without a token, an Artifact Registry Python repo mirror is an
    option (workload-identity keyring auth).
 
-3. **Doc: extract_cached is a laptop/VM helper.** Its local parquet cache is
-   ephemeral in containers and Cloud Functions. In those environments prefer
+3. **Doc: extract_cached is a laptop/VM helper. (DONE)** Its local parquet cache
+   is ephemeral in containers and Cloud Functions. In those environments prefer
    `gcs.*` for durable artifacts. Noted in the README and the docstring.
 
 ## Later tiers (the "compute" in mooncompute, not yet scoped)

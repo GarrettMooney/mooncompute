@@ -4,12 +4,30 @@ from __future__ import annotations
 
 import io
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import polars as pl
 from google.cloud import storage
 
 from ._creds import materialize_gcp_creds
+
+if TYPE_CHECKING:
+    import polars as pl
+
+
+def _polars():
+    """Import polars lazily so the JSON/bytes path stays free of it.
+
+    polars (+ pyarrow) is tens of MB and a real Cloud Function cold-start cost;
+    only the parquet helpers need it. Installed via the `bq` extra.
+    """
+    try:
+        import polars as pl
+    except ImportError as exc:  # pragma: no cover - exercised via install shape
+        raise ImportError(
+            "parquet I/O needs polars. Install it with "
+            "`pip install 'mooncompute[bq]'` (or add polars directly)."
+        ) from exc
+    return pl
 
 
 def _client() -> storage.Client:
@@ -25,6 +43,7 @@ def _parse_uri(uri: str) -> tuple[str, str]:
 
 
 def read_parquet(uri: str) -> pl.DataFrame:
+    pl = _polars()
     bucket, key = _parse_uri(uri)
     blob = _client().bucket(bucket).blob(key)
     buf = io.BytesIO()
@@ -38,6 +57,7 @@ def read_parquet_glob(prefix_uri: str) -> pl.DataFrame:
 
     Use for BigQuery `EXPORT DATA` output, which writes many shards.
     """
+    pl = _polars()
     bucket, prefix = _parse_uri(prefix_uri.rstrip("/") + "/")
     shards = [
         b

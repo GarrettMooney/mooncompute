@@ -15,11 +15,20 @@ BigQuery <-> polars, GCS, and credential boilerplate in every project.
 
 ## Install
 
+Dependencies are split into extras so you install only what you use. The base
+package is dependency-free (credential helper + `gs://` URI parsing); pull an
+extra for actual I/O:
+
 ```sh
-uv add "git+https://github.com/garrettmooney/mooncompute@v0.1.0"
-# or, once published:
-uv add mooncompute
+uv add "mooncompute[bq]"        # BigQuery <-> polars (polars, pyarrow, bigquery, db-dtypes)
+uv add "mooncompute[gcs]"       # GCS JSON/bytes I/O (google-cloud-storage only)
+uv add "mooncompute[bq,gcs]"    # both; also what you need for parquet on GCS
+uv add "mooncompute[all]"       # alias for [bq,gcs]
 ```
+
+GCS parquet helpers (`gcs.read_parquet` / `write_parquet`) lazily require polars,
+so install `[bq,gcs]` for them; the JSON/bytes path stays polars-free under
+`[gcs]` alone, keeping Cloud Function cold-starts light.
 
 ## Configuration
 
@@ -87,7 +96,7 @@ container component): install at image-build time, then push to your registry.
 ```dockerfile
 FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
-RUN pip install "git+https://github.com/garrettmooney/mooncompute@v0.1.0"
+RUN pip install "mooncompute[bq,gcs]"
 ```
 
 Caveats by target:
@@ -97,10 +106,10 @@ Caveats by target:
 - **Kubeflow lightweight components** (`packages_to_install=[...]`): the install
   runs in-pod at runtime; prefer a container component for a public/private
   install you control.
-- **Cloud Functions**: weakest fit. polars + pyarrow add real cold-start cost,
-  and `extract_cached`'s parquet cache only lives in ephemeral `/tmp`. A future
-  release will split heavy deps into extras so the GCS-only path stays light
-  (see `docs/ROADMAP.md`).
+- **Cloud Functions**: weakest fit, but install `mooncompute[gcs]` to keep the
+  JSON/bytes path free of polars + pyarrow and their cold-start cost. Note
+  `extract_cached`'s parquet cache only lives in ephemeral `/tmp`; prefer `gcs.*`
+  for durable artifacts there.
 
 ## Scope
 
