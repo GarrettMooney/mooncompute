@@ -52,7 +52,10 @@ jobs:
 
           CPYTHON_VERSIONS=$(echo "$LIST" | jq -c --arg min "$MIN_VERSION" '
             ($min | split(".") | {major: .[0]|tonumber, minor: .[1]|tonumber}) as $minv |
-            [.[] | {v:.version_parts, t:.variant, impl:.implementation}]
+            [.[]
+              | select(.implementation == "cpython")
+              | select(.version | test("[a-zA-Z]") | not)  # drop pre-releases (e.g. 3.15.0b2): no native-dep wheels yet
+              | {v:.version_parts, t:.variant, impl:.implementation}]
             | unique_by([.v.minor,.t])
             | map(select(
                 (.impl == "cpython") and
