@@ -7,8 +7,10 @@ BigQuery <-> polars, GCS, and credential boilerplate in every project.
 
 - `bq2pl(sql)` - run SQL, get a polars DataFrame (Decimal columns cast to
   Float64 by default).
-- `extract_cached(sql, cache)` - the same, wrapped in a local parquet cache
-  keyed by a hash of the SQL: re-queries only when the SQL changes.
+- `extract_cached(sql, cache, ...)` - the same, wrapped in a local parquet cache
+  keyed by a hash of the SQL. You must pick an invalidation mode:
+  `content_only=True` (re-query on SQL change only) or `max_age=<timedelta>`
+  (also re-query past a TTL); a bare call raises.
 - `pl2bq(df, dataset=, table=)` - load a polars DataFrame into BigQuery, with
   `enable_list_inference` set so ARRAY columns load correctly.
 - `gcs.*` - read/write parquet, JSON, and bytes over `gs://` URIs.
