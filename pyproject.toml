@@ -7,6 +7,19 @@ requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "Garrett Mooney" }]
 keywords = ["bigquery", "polars", "gcs", "google-cloud", "arrow"]
+# Note: no "License :: OSI Approved" classifier -- it conflicts with the SPDX
+# `license = "MIT"` field above (PEP 639).
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries",
+]
 # Base install is intentionally dependency-free: it provides only the credential
 # helper and gs:// URI parsing (stdlib). Pull an extra for actual I/O so a
 # JSON/bytes-only consumer (e.g. a Cloud Function) never installs polars+pyarrow.

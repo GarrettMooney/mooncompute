@@ -1,5 +1,10 @@
 # mooncompute
 
+[![PyPI](https://img.shields.io/pypi/v/mooncompute.svg)](https://pypi.org/project/mooncompute/)
+[![Python versions](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://pypi.org/project/mooncompute/)
+[![CI](https://github.com/GarrettMooney/mooncompute/actions/workflows/test.yml/badge.svg)](https://github.com/GarrettMooney/mooncompute/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Ergonomic GCP data-access helpers, so you stop re-writing the same
 BigQuery <-> polars, GCS, and credential boilerplate in every project.
 
