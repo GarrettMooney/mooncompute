@@ -35,9 +35,8 @@ def test_read_dispatches_bq(monkeypatch):
     assert seen["uri"] == "bq://p.d.t"
 
 
-@pytest.mark.skip(reason="cache.py lands in Task 5")
 def test_read_cache_pinned_routes_to_read_cached(monkeypatch):
-    from mooncompute import cache  # ty: ignore[unresolved-import]
+    from mooncompute import cache
 
     called = {}
     monkeypatch.setattr(

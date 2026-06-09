@@ -27,7 +27,7 @@ def read(
     """
     engine = engine or settings.engine
     if cache is not None:
-        from .cache import read_cached  # ty: ignore[unresolved-import]
+        from .cache import read_cached
 
         return read_cached(
             source, cache=cache, lazy=lazy, columns=columns, engine=engine, **params
