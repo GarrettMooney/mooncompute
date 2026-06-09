@@ -36,7 +36,9 @@ def test_read_dispatches_bq(monkeypatch):
 
 
 def test_read_cache_pinned_routes_to_read_cached(monkeypatch):
-    from mooncompute import cache
+    import importlib
+
+    cache = importlib.import_module("mooncompute.cache")
 
     called = {}
     monkeypatch.setattr(

@@ -1,8 +1,11 @@
+import importlib
+
 import polars as pl
 import pytest
 
-from mooncompute import cache as mc
 from mooncompute.config import settings
+
+mc = importlib.import_module("mooncompute.cache")
 
 
 @pytest.fixture(autouse=True)
