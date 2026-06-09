@@ -26,6 +26,10 @@ def read(
     cache: None (off) | "6h"/"30m"/"7d" (TTL mode) | "pinned" (content mode).
     """
     engine = engine or settings.engine
+    if engine == "duckdb":
+        raise NotImplementedError(
+            "engine='duckdb' is a future seam; v0.4 returns polars frames only."
+        )
     if cache is not None:
         from .cache import read_cached
 
@@ -54,7 +58,6 @@ def write(
     dest: str,
     *,
     mode: Literal["overwrite", "append", "error"] = "error",
-    partition_by: list[str] | None = None,
 ) -> None:
     if isinstance(df, pl.LazyFrame):
         df = df.collect()

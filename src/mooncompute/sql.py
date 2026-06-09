@@ -20,6 +20,8 @@ def sql(query: str, *, lazy: bool = False, **frames: pl.DataFrame) -> Any:
         frame_obj = inspect.currentframe()
         caller = frame_obj.f_back.f_locals if frame_obj and frame_obj.f_back else {}
         frames = {k: v for k, v in caller.items() if isinstance(v, pl.DataFrame)}
+    # DuckDB autoloads known extensions (httpfs, vss) on first reference, so a
+    # query using them works without an explicit INSTALL/LOAD here.
     con = duckdb.connect()
     try:
         for name, frame in frames.items():

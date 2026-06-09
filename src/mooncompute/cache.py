@@ -215,7 +215,7 @@ def read_cached(source: str, *, cache: str, **read_kwargs) -> Any:
     freshness = source_fingerprint(source)
     # `lazy` only changes the return wrapper, not the cached bytes; keep it out
     # of the key so lazy and eager reads share one artifact.
-    key_kwargs = {k: v for k, v in read_kwargs.items() if k != "lazy"}
+    key_kwargs = {k: v for k, v in read_kwargs.items() if k not in ("lazy", "engine")}
     key = _key("read", (source,), key_kwargs, None)
     store = CacheStore.default()
     hit = store.get(key, ttl_seconds=_ttl_seconds(cache), freshness=freshness)

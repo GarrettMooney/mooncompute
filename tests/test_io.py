@@ -48,3 +48,8 @@ def test_read_cache_pinned_routes_to_read_cached(monkeypatch):
     )
     mio.read("bq://p.d.t", cache="pinned")
     assert called["hit"]
+
+
+def test_read_duckdb_engine_raises():
+    with pytest.raises(NotImplementedError):
+        mio.read("bq://p.d.t", engine="duckdb")

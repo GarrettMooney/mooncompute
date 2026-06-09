@@ -71,3 +71,13 @@ def test_scan_parquet_returns_lazyframe(monkeypatch):
     result = lf.collect()
     assert isinstance(result, pl.DataFrame)
     assert result.columns == ["a"]
+
+
+def test_scan_parquet_materializes_creds(monkeypatch):
+    called = {"n": 0}
+    monkeypatch.setattr(
+        gcs, "materialize_gcp_creds", lambda: called.__setitem__("n", called["n"] + 1)
+    )
+    monkeypatch.setattr(pl, "scan_parquet", lambda uri, **kw: pl.LazyFrame({"a": [1]}))
+    gcs.scan_parquet("gs://b/x.parquet")
+    assert called["n"] == 1

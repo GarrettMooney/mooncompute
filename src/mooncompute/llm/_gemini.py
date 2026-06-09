@@ -15,6 +15,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from .._creds import materialize_gcp_creds
 from ..config import settings
 
 log = logging.getLogger(__name__)
@@ -167,6 +168,7 @@ async def embed_batch(
 def _vertex_client() -> Any:
     from google import genai
 
+    materialize_gcp_creds()
     return genai.Client(
         vertexai=True, project=settings.project, location=settings.location
     )

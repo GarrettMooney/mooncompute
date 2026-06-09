@@ -41,6 +41,7 @@ def scan_parquet(uri: str, *, columns: list[str] | None = None) -> pl.LazyFrame:
     pushdown. Auth via ADC; storage_options are inferred from the environment.
     """
     pl = _polars()
+    materialize_gcp_creds()
     lf = pl.scan_parquet(uri)
     if columns:
         lf = lf.select(columns)
