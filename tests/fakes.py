@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 import io
 
 # ---- GCS ----------------------------------------------------------------
@@ -58,6 +59,17 @@ class FakeStorageClient:
 # ---- BigQuery -----------------------------------------------------------
 
 
+class FakeTable:
+    def __init__(self, modified=None, full_id="proj.ds.t"):
+        self.modified = modified or _dt.datetime(2024, 1, 1, tzinfo=_dt.UTC)
+        self.full_table_id = full_id
+
+
+class FakeDryRunJob:
+    def __init__(self, total_bytes):
+        self.total_bytes_processed = total_bytes
+
+
 class FakeQueryJob:
     def __init__(self, table) -> None:
         self._table = table
@@ -77,9 +89,16 @@ class FakeBQClient:
         self._table = table
         self.queries: list[str] = []
         self.load_calls: list[dict] = []
+        self._modified = None
+        self.dry_run_bytes = 0
 
-    def query(self, sql: str) -> FakeQueryJob:
+    def get_table(self, ref):
+        return FakeTable(modified=self._modified, full_id=str(ref))
+
+    def query(self, sql, job_config=None):
         self.queries.append(sql)
+        if job_config is not None and getattr(job_config, "dry_run", False):
+            return FakeDryRunJob(self.dry_run_bytes)
         return FakeQueryJob(self._table)
 
     def load_table_from_file(self, stream, destination=None, **kwargs) -> FakeLoadJob:

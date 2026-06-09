@@ -8,24 +8,18 @@ from typing import TYPE_CHECKING, Any
 
 from google.cloud import storage
 
-from ._creds import materialize_gcp_creds
+from .._creds import materialize_gcp_creds
 
 if TYPE_CHECKING:
     import polars as pl
 
 
 def _polars():
-    """Import polars lazily so the JSON/bytes path stays free of it.
-
-    polars (+ pyarrow) is tens of MB and a real Cloud Function cold-start cost;
-    only the parquet helpers need it. Installed via the `bq` extra.
-    """
     try:
         import polars as pl
-    except ImportError as exc:  # pragma: no cover - exercised via install shape
+    except ImportError as exc:  # pragma: no cover
         raise ImportError(
-            "parquet I/O needs polars. Install it with "
-            "`pip install 'mooncompute[bq]'` (or add polars directly)."
+            "parquet I/O needs polars. Install `pip install 'mooncompute[gcp]'`."
         ) from exc
     return pl
 
@@ -42,6 +36,18 @@ def _parse_uri(uri: str) -> tuple[str, str]:
     return bucket, key
 
 
+def scan_parquet(uri: str, *, columns: list[str] | None = None) -> pl.LazyFrame:
+    """Lazy scan of gs://...parquet (glob ok). Keeps projection/predicate
+    pushdown. Auth via ADC; storage_options are inferred from the environment.
+    """
+    pl = _polars()
+    materialize_gcp_creds()
+    lf = pl.scan_parquet(uri)
+    if columns:
+        lf = lf.select(columns)
+    return lf
+
+
 def read_parquet(uri: str) -> pl.DataFrame:
     pl = _polars()
     bucket, key = _parse_uri(uri)
@@ -53,10 +59,7 @@ def read_parquet(uri: str) -> pl.DataFrame:
 
 
 def read_parquet_glob(prefix_uri: str) -> pl.DataFrame:
-    """Read and concat all *.parquet shards under a gs:// prefix.
-
-    Use for BigQuery `EXPORT DATA` output, which writes many shards.
-    """
+    """Read and concat all *.parquet shards under a gs:// prefix (EXPORT DATA)."""
     pl = _polars()
     bucket, prefix = _parse_uri(prefix_uri.rstrip("/") + "/")
     shards = [

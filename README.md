@@ -5,123 +5,161 @@
 [![CI](https://github.com/GarrettMooney/mooncompute/actions/workflows/test.yml/badge.svg)](https://github.com/GarrettMooney/mooncompute/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Ergonomic GCP data-access helpers, so you stop re-writing the same
-BigQuery <-> polars, GCS, and credential boilerplate in every project.
+Thin Arrow-glue for data-science iteration. One `read`/`write`/`sql` surface over
+BigQuery, GCS, Polars, and DuckDB, plus LLM calls as a column operation.
 
-`mooncompute.gcp` gives you:
+Arrow is already the common substrate: BigQuery's Storage API, Polars, DuckDB,
+and Parquet all speak it. mooncompute does not reimplement those connectors. It
+adds the two things they leave to you, which is where the iteration-speed and
+cost wins live: **content-addressed caching** and **LLM-as-a-column-op** with
+per-row caching and bounded concurrency.
 
-- `bq2pl(sql)` - run SQL, get a polars DataFrame (Decimal columns cast to
-  Float64 by default).
-- `extract_cached(sql, cache, ...)` - the same, wrapped in a local parquet cache
-  keyed by a hash of the SQL. You must pick an invalidation mode:
-  `content_only=True` (re-query on SQL change only) or `max_age=<timedelta>`
-  (also re-query past a TTL); a bare call raises.
-- `pl2bq(df, dataset=, table=)` - load a polars DataFrame into BigQuery, with
-  `enable_list_inference` set so ARRAY columns load correctly.
-- `gcs.*` - read/write parquet, JSON, and bytes over `gs://` URIs.
+```python
+import mooncompute as mc
+from pydantic import BaseModel
+
+df  = mc.read("bq://proj.dataset.events", columns=["user_id", "review"])
+out = mc.sql("select user_id, count(*) n from df group by 1 order by n desc")
+
+class Sentiment(BaseModel):
+    label: str
+    score: float
+
+scored = df.with_columns(
+    mc.llm.map("review", prompt="Classify the sentiment: {review}",
+               schema=Sentiment).alias("sentiment")
+)
+mc.write(scored, "bq://proj.dataset.scored", mode="overwrite")
+```
 
 ## Install
 
-Dependencies are split into extras so you install only what you use. The base
-package is dependency-free (credential helper + `gs://` URI parsing); pull an
-extra for actual I/O:
+Core pulls the Arrow substrate (`polars`, `pyarrow`, `duckdb`), so `mc.read("gs://...")`
+and `mc.sql(...)` work on a bare install. GCP clients and the LLM provider are
+opt-in extras:
 
 ```sh
-uv add "mooncompute[bq]"        # BigQuery <-> polars (polars, pyarrow, bigquery, db-dtypes)
-uv add "mooncompute[gcs]"       # GCS JSON/bytes I/O (google-cloud-storage only)
-uv add "mooncompute[bq,gcs]"    # both; also what you need for parquet on GCS
-uv add "mooncompute[all]"       # alias for [bq,gcs]
+uv add "mooncompute[gcp]"   # BigQuery + GCS (google-cloud-bigquery, storage, db-dtypes)
+uv add "mooncompute[llm]"   # Vertex Gemini column ops (google-genai)
+uv add "mooncompute[all]"   # both
 ```
-
-GCS parquet helpers (`gcs.read_parquet` / `write_parquet`) lazily require polars,
-so install `[bq,gcs]` for them; the JSON/bytes path stays polars-free under
-`[gcs]` alone, keeping Cloud Function cold-starts light.
 
 ## Configuration
 
-The common path: set `GOOGLE_CLOUD_PROJECT` once and omit `project=` everywhere.
-The gcloud SDK already sets it, so on a configured machine there is nothing to
-do; otherwise:
+Auth is Application Default Credentials only. Locally that is
+`gcloud auth application-default login`; in CI or on GCP it is the attached
+service account. In a Modal container, set a `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+secret and it is materialized to ADC automatically.
+
+Set the project once via the environment, or configure at startup:
 
 ```sh
-export GOOGLE_CLOUD_PROJECT=my-project
+export MOONCOMPUTE_PROJECT=my-project   # GOOGLE_CLOUD_PROJECT also works
 ```
-
-Pass `project=` on any call to override it (e.g. multi-project work). A call
-that is given neither an explicit `project=` nor the env var raises.
-
-Credentials use Application Default Credentials; in a Modal container, set a
-`GOOGLE_APPLICATION_CREDENTIALS_JSON` secret and it is materialized to ADC
-automatically.
-
-## Usage
 
 ```python
-from pathlib import Path
-
-from mooncompute.gcp import bq, gcs
-
-# With GOOGLE_CLOUD_PROJECT set, calls need no project= (pass project= to override):
-df = bq.bq2pl("SELECT * FROM `proj.ds.tbl` LIMIT 10")
-
-# SQL-hash-keyed parquet cache. You must pick an invalidation mode; a bare
-# call raises. For a deterministic query (e.g. pinned to a snapshot date) pass
-# content_only=True to invalidate on SQL change only:
-df = bq.extract_cached(
-    bq.read_sql("features.sql", snapshot="2024-10-01"),
-    Path("data/features.parquet"),
-    content_only=True,
-)
-
-# For a live/relative query, pass max_age to also re-query past a TTL (or use
-# bq2pl for an always-live read). content_only and max_age are mutually exclusive.
-from datetime import timedelta
-
-df = bq.extract_cached(
-    bq.read_sql("daily_active.sql"),
-    Path("data/dau.parquet"),
-    max_age=timedelta(hours=12),
-)
-
-# polars -> BQ (ARRAY columns handled via enable_list_inference)
-bq.pl2bq(df, dataset="scratch", table="out")
-
-# GCS round-trips over gs:// URIs
-gcs.write_parquet(df, "gs://my-bucket/out.parquet")
-df = gcs.read_parquet("gs://my-bucket/out.parquet")
+mc.configure(project="my-project", location="US")
 ```
 
-## Deploying on GCP
+## Reading and writing
 
-mooncompute is happiest baked into a container. ADC comes from the workload's
-service account, so credential materialization no-ops and the BQ/GCS clients
-just work.
+`read` dispatches on the URI scheme and is lazy by default (returns a Polars
+`LazyFrame`, so column and predicate selection push down; compute fires on
+`.collect()`):
 
-Recommended path (Cloud Run service or job, Vertex custom job, Kubeflow
-container component): install at image-build time, then push to your registry.
+```python
+mc.read("bq://proj.ds.table", columns=["a", "b"])      # Storage API, server-side projection
+mc.read("gs://bucket/events/*.parquet")                # scan_parquet, pushdown preserved
+mc.read("select * from `proj.ds.t` where dt = @dt", dt="2024-01-01")  # parameterized BQ
+mc.read("bq://proj.ds.t", lazy=False)                  # eager DataFrame
 
-```dockerfile
-FROM python:3.11-slim
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
-RUN pip install "mooncompute[bq,gcs]"
+mc.dry_run("select ...")        # {'bytes_processed': int, 'estimated_usd': float}
+mc.write(df, "gs://bucket/out.parquet")
+mc.write(df, "bq://proj.ds.out", mode="append")
 ```
 
-Caveats by target:
+A BigQuery dry-run guardrail runs before execution; set
+`mc.configure(bq_max_bytes_billed=...)` to reject queries that would scan more
+than a cap, and the same cap is enforced server-side on the real job.
 
-- **Cloud Run** (service or job): best fit. No install-auth or cold-start
-  concerns once baked into the image.
-- **Kubeflow lightweight components** (`packages_to_install=[...]`): the install
-  runs in-pod at runtime; prefer a container component for a public/private
-  install you control.
-- **Cloud Functions**: weakest fit, but install `mooncompute[gcs]` to keep the
-  JSON/bytes path free of polars + pyarrow and their cold-start cost. Note
-  `extract_cached`'s parquet cache only lives in ephemeral `/tmp`; prefer `gcs.*`
-  for durable artifacts there.
+## Caching
 
-## Scope
+Re-running an expensive scan or a long feature build should become a metadata
+check. The `@cache` decorator memoizes any frame-returning function to a local
+Parquet store; the key folds in the function's source, so editing the body
+invalidates automatically.
 
-v1 ships `mooncompute.gcp` only. Modal, LLM/eval, and run-utils tiers may
-follow; see `docs/ROADMAP.md`.
+There is no silent default: you pick an invalidation mode, because whether
+identical inputs may be served from cache depends on the query.
+
+```python
+@mc.cache(ttl="6h")        # live/relative query: re-run past the TTL
+def daily_active(date): ...
+
+@mc.cache(pinned=True)      # deterministic/pinned query: invalidate on source change only
+def dim_users(): ...
+```
+
+The same modes apply to `read` via the `cache` argument:
+
+```python
+mc.read(sql, cache="6h")        # TTL mode
+mc.read("bq://proj.ds.dim", cache="pinned")   # content mode
+```
+
+For `bq://` sources a freshness token (the table's `modified` timestamp) is
+folded into the staleness check, so a reloaded table busts even a pinned entry.
+Writes are atomic and reads fail open: a corrupt cache re-runs the source rather
+than raising. The cache is local in v0.4; a shared GCS tier is planned.
+
+## LLM column operations
+
+`llm.map` and `llm.embed` return Polars expressions, so they compose with
+`with_columns`. Under the hood each hands the whole column to an async
+bounded-concurrency fan-out against Vertex Gemini (ADC auth), with retry and a
+SQLite per-row cache keyed on `(model, system, prompt, schema, params)`. A re-run
+after editing three rows costs three calls, not N.
+
+```python
+df = df.with_columns(
+    mc.llm.map("review", prompt="Classify: {review}", schema=Sentiment).alias("label")
+)
+emb = df.with_columns(mc.llm.embed("text").alias("vec"))   # Array(Float32) column
+```
+
+With a Pydantic `schema`, `map` uses structured output and returns a Struct
+column; otherwise a Utf8 column. `temperature` defaults to `0.0` so the cache is
+meaningful. Tradeoff: a mapped column materializes at `.collect()` (it cannot
+stay lazy past the LLM call). Embeddings pair with `sql()` and DuckDB's VSS
+extension for similarity search on the same in-memory data.
+
+## DuckDB interop
+
+`sql()` runs DuckDB SQL over in-scope Polars frames (zero-copy via Arrow) and
+returns a Polars frame. Reach for it when SQL is terser: window functions, ASOF
+joins, or VSS search over an embedding column.
+
+```python
+out = mc.sql("select user_id, count(*) n from df group by 1")   # df captured from scope
+```
+
+## Migration from v0.3
+
+v0.4 is a clean break. The `mooncompute.gcp.*` namespace is gone in favor of the
+top-level surface.
+
+| v0.3 | v0.4 |
+| --- | --- |
+| `from mooncompute.gcp import bq2pl; bq2pl(sql)` | `mc.read(sql, lazy=False)` |
+| `gcp.extract_cached(sql, path, max_age=...)` | `mc.read(sql, cache="6h")` |
+| `gcp.extract_cached(sql, path, content_only=True)` | `mc.read(sql, cache="pinned")` |
+| `gcp.pl2bq(df, dataset=, table=)` | `mc.write(df, "bq://proj.ds.table", mode="append")` |
+| `gcp.gcs.read_parquet(uri)` | `mc.read(uri, lazy=False)` |
+
+## Deferred
+
+Planned, not in v0.4: a shared GCS cache tier, the LLM Batch API (~50% cheaper),
+and USD spend-cap accounting.
 
 ## Develop
 

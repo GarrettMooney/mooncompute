@@ -1,7 +1,7 @@
 import polars as pl
 import pytest
 
-from mooncompute.gcp import gcs
+from mooncompute.sources import gcs
 from tests.fakes import FakeStorageClient
 
 
@@ -55,3 +55,29 @@ def test_read_parquet_glob_raises_when_empty(monkeypatch):
     _use_fake(monkeypatch)
     with pytest.raises(FileNotFoundError):
         gcs.read_parquet_glob("gs://bkt/missing")
+
+
+def test_scan_parquet_returns_lazyframe(monkeypatch):
+    captured = {}
+
+    def fake_scan(uri, **kw):
+        captured["uri"] = uri
+        return pl.LazyFrame({"a": [1, 2]})
+
+    monkeypatch.setattr(pl, "scan_parquet", fake_scan)
+    lf = gcs.scan_parquet("gs://b/p/*.parquet", columns=["a"])
+    assert isinstance(lf, pl.LazyFrame)
+    assert captured["uri"] == "gs://b/p/*.parquet"
+    result = lf.collect()
+    assert isinstance(result, pl.DataFrame)
+    assert result.columns == ["a"]
+
+
+def test_scan_parquet_materializes_creds(monkeypatch):
+    called = {"n": 0}
+    monkeypatch.setattr(
+        gcs, "materialize_gcp_creds", lambda: called.__setitem__("n", called["n"] + 1)
+    )
+    monkeypatch.setattr(pl, "scan_parquet", lambda uri, **kw: pl.LazyFrame({"a": [1]}))
+    gcs.scan_parquet("gs://b/x.parquet")
+    assert called["n"] == 1

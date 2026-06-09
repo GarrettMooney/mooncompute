@@ -1,14 +1,12 @@
 [project]
 name = "mooncompute"
-version = "0.3.2"
-description = "Ergonomic GCP data-access helpers: BigQuery <-> polars, GCS, and a SQL-hash parquet cache."
+version = "0.4.0"
+description = "Thin Arrow-glue for data science: one read/write/sql surface over BigQuery, GCS, Polars, DuckDB, plus LLM column ops."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "Garrett Mooney" }]
-keywords = ["bigquery", "polars", "gcs", "google-cloud", "arrow"]
-# Note: no "License :: OSI Approved" classifier -- it conflicts with the SPDX
-# `license = "MIT"` field above (PEP 639).
+keywords = ["bigquery", "polars", "duckdb", "gcs", "arrow", "llm", "gemini"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -16,32 +14,27 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
     "Topic :: Database",
     "Topic :: Software Development :: Libraries",
 ]
-# Base install is intentionally dependency-free: it provides only the credential
-# helper and gs:// URI parsing (stdlib). Pull an extra for actual I/O so a
-# JSON/bytes-only consumer (e.g. a Cloud Function) never installs polars+pyarrow.
-dependencies = []
-
-[project.optional-dependencies]
-# BigQuery <-> polars. Also the home of polars+pyarrow, which the gcs parquet
-# helpers lazily require (install `mooncompute[bq,gcs]` for parquet on GCS).
-bq = [
+# Core pulls the Arrow substrate so read("gs://...") and sql() work on a bare
+# install. GCP clients and the LLM provider are opt-in extras.
+dependencies = [
     "polars>=1.0",
     "pyarrow>=15",
+    "duckdb>=1.0",
+]
+
+[project.optional-dependencies]
+gcp = [
     "google-cloud-bigquery>=3.0",
+    "google-cloud-storage>=2.0",
     "db-dtypes>=1.0",
 ]
-# GCS object I/O. JSON/bytes need only google-cloud-storage; parquet additionally
-# needs polars (lazily imported), so pair with `[bq]` for parquet.
-gcs = [
-    "google-cloud-storage>=2.0",
+llm = [
+    "google-genai>=0.3",
 ]
-all = [
-    "mooncompute[bq,gcs]",
-]
+all = ["mooncompute[gcp,llm]"]
 
 [project.urls]
 Homepage = "https://github.com/garrettmooney/mooncompute"
@@ -73,10 +66,8 @@ python-version = "3.11"
 include = ["src", "tests"]
 
 [dependency-groups]
-# Self-reference the extras so a bare `uv sync` (CI + local) installs the full
-# stack for tests; the published wheel still ships the extras as opt-in.
 dev = [
-    "mooncompute[bq,gcs]",
+    "mooncompute[gcp,llm]",
     "pytest>=8",
     "ruff>=0.15.14",
     "ty>=0.0.39",
