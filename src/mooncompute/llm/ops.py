@@ -3,7 +3,12 @@
 map_batches hands the whole column to our function as one Series, so async
 fan-out with bounded concurrency runs inside it. Native with_columns ergonomics
 are preserved; the tradeoff is the column materializes at .collect() (it cannot
-stay lazy past the LLM call)."""
+stay lazy past the LLM call).
+
+We declare return_dtype on every map_batches call. Without it Polars probes the
+UDF with an empty Series to infer the output type, which fires a (wasted) batch
+and, for the embed path, yields an invalid zero-width Array. Declaring the dtype
+skips the probe entirely."""
 
 from __future__ import annotations
 
@@ -13,6 +18,20 @@ from typing import Any
 import polars as pl
 
 from ..config import settings
+
+# pydantic primitive annotation -> polars dtype, for deriving a struct schema.
+_PRIM = {str: pl.Utf8, int: pl.Int64, float: pl.Float64, bool: pl.Boolean}
+
+
+def _struct_dtype(schema: Any) -> pl.Struct | None:
+    """Best-effort polars Struct from a pydantic model; None if not derivable
+    (e.g. a bare dict), in which case we let Polars infer the output."""
+    fields = getattr(schema, "model_fields", None)
+    if not fields:
+        return None
+    return pl.Struct(
+        {name: _PRIM.get(info.annotation, pl.Utf8) for name, info in fields.items()}
+    )
 
 
 def map(  # noqa: A001
@@ -30,6 +49,8 @@ def map(  # noqa: A001
     column via structured output; otherwise a Utf8 column."""
     model = model or settings.llm_default_model
     concurrency = concurrency or settings.llm_concurrency
+    struct_dtype = _struct_dtype(schema) if schema is not None else None
+    return_dtype = pl.Utf8 if schema is None else struct_dtype
 
     def _run(s: pl.Series) -> pl.Series:
         from . import _gemini
@@ -50,11 +71,13 @@ def map(  # noqa: A001
                 max_retries=settings.llm_max_retries,
             )
         )
-        if schema is not None:
-            return pl.Series(results)
-        return pl.Series(results, dtype=pl.Utf8)
+        if schema is None:
+            return pl.Series(results, dtype=pl.Utf8)
+        if struct_dtype is not None:
+            return pl.Series(results, dtype=struct_dtype)
+        return pl.Series(results)  # non-pydantic schema: let Polars infer
 
-    return pl.col(column).map_batches(_run)
+    return pl.col(column).map_batches(_run, return_dtype=return_dtype)
 
 
 def embed(
@@ -64,7 +87,12 @@ def embed(
     concurrency: int | None = None,
     dims: int | None = None,
 ) -> pl.Expr:
-    """Embed a text column into a fixed-width Array(Float32) column."""
+    """Embed a text column into a List(Float32) column.
+
+    Cast to a fixed-width array for DuckDB VSS, e.g.
+    `df.with_columns(mc.llm.embed("t").cast(pl.Array(pl.Float32, 768)).alias("v"))`.
+    Pass `dims` to request a specific output dimensionality from the model.
+    """
     model = model or settings.llm_embed_model
     concurrency = concurrency or settings.llm_concurrency
 
@@ -80,7 +108,6 @@ def embed(
                 max_retries=settings.llm_max_retries,
             )
         )
-        width = dims or (len(next(v for v in vecs if v)) if any(vecs) else 0)
-        return pl.Series(vecs, dtype=pl.Array(pl.Float32, width))
+        return pl.Series(vecs, dtype=pl.List(pl.Float32))
 
-    return pl.col(column).map_batches(_run)
+    return pl.col(column).map_batches(_run, return_dtype=pl.List(pl.Float32))

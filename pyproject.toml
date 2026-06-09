@@ -55,6 +55,9 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 88
+# Session-history reference stubs (the original "flow" skeleton) are not package
+# code and should not be linted.
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

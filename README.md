@@ -124,14 +124,15 @@ after editing three rows costs three calls, not N.
 df = df.with_columns(
     mc.llm.map("review", prompt="Classify: {review}", schema=Sentiment).alias("label")
 )
-emb = df.with_columns(mc.llm.embed("text").alias("vec"))   # Array(Float32) column
+emb = df.with_columns(mc.llm.embed("text").alias("vec"))   # List(Float32) column
 ```
 
 With a Pydantic `schema`, `map` uses structured output and returns a Struct
 column; otherwise a Utf8 column. `temperature` defaults to `0.0` so the cache is
 meaningful. Tradeoff: a mapped column materializes at `.collect()` (it cannot
-stay lazy past the LLM call). Embeddings pair with `sql()` and DuckDB's VSS
-extension for similarity search on the same in-memory data.
+stay lazy past the LLM call). `embed` returns a `List(Float32)` column; cast it
+to `pl.Array(pl.Float32, k)` to pair with `sql()` and DuckDB's VSS extension for
+similarity search on the same in-memory data.
 
 ## DuckDB interop
 
