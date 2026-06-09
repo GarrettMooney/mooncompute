@@ -77,13 +77,19 @@ def dry_run(sql, *, params=None, client=None, project=None) -> dict[str, Any]:
 def _query_params(params: dict) -> list:
     out = []
     for k, v in params.items():
-        t = "STRING"
         if isinstance(v, bool):
             t = "BOOL"
         elif isinstance(v, int):
             t = "INT64"
         elif isinstance(v, float):
             t = "FLOAT64"
+        elif isinstance(v, str):
+            t = "STRING"
+        else:
+            raise TypeError(
+                f"unsupported query param type for {k!r}: {type(v).__name__} "
+                f"(supported: str, int, float, bool)"
+            )
         out.append(bigquery.ScalarQueryParameter(k, t, v))
     return out
 
@@ -110,7 +116,14 @@ def read_query(
                 f"query would scan {est['bytes_processed']:,} bytes "
                 f"(${est['estimated_usd']:.2f}), over cap of {cap:,}"
             )
+        log.info(
+            "bq query estimate: %s bytes (~$%.4f)",
+            f"{est['bytes_processed']:,}",
+            est["estimated_usd"],
+        )
     cfg = bigquery.QueryJobConfig(query_parameters=_query_params(params or {}))
+    if cap:
+        cfg.maximum_bytes_billed = cap
     arrow = client.query(sql, job_config=cfg).to_arrow(create_bqstorage_client=True)
     df = _decimals_to_float(cast(pl.DataFrame, pl.from_arrow(arrow)))
     return df.lazy() if lazy else df
@@ -119,6 +132,10 @@ def read_query(
 def read_table(uri, *, lazy, columns, engine, client=None, project=None) -> Any:
     """bq://p.d.t -> frame. Projection is pushed server-side via SELECT cols."""
     project_, dataset, table = _parse_bq_uri(uri)
+    if columns:
+        bad = [c for c in columns if "`" in c]
+        if bad:
+            raise ValueError(f"invalid column name(s): {bad}")
     cols = ", ".join(f"`{c}`" for c in columns) if columns else "*"
     sql = f"SELECT {cols} FROM `{project_}.{dataset}.{table}`"
     return read_query(
@@ -150,11 +167,16 @@ def write_table(
     project_, dataset, table = _parse_bq_uri(uri)
     client = client or _client(project or project_)
     destination = f"{project_}.{dataset}.{table}"
-    disp = {
-        "overwrite": bigquery.WriteDisposition.WRITE_TRUNCATE,
-        "append": bigquery.WriteDisposition.WRITE_APPEND,
-        "error": bigquery.WriteDisposition.WRITE_EMPTY,
-    }[mode]
+    try:
+        disp = {
+            "overwrite": bigquery.WriteDisposition.WRITE_TRUNCATE,
+            "append": bigquery.WriteDisposition.WRITE_APPEND,
+            "error": bigquery.WriteDisposition.WRITE_EMPTY,
+        }[mode]
+    except KeyError:
+        raise ValueError(
+            f"bad mode: {mode!r}; use 'overwrite', 'append', or 'error'"
+        ) from None
     job_config = bigquery.LoadJobConfig(write_disposition=disp)
     job_config.source_format = bigquery.SourceFormat.PARQUET
     opts = bigquery.ParquetOptions()

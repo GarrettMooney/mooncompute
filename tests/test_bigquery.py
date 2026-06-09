@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import polars as pl
 import pyarrow as pa
+import pytest
 
 from mooncompute.sources import bigquery as bq
 from tests.fakes import FakeBQClient
@@ -50,4 +51,38 @@ def test_read_table_lazy_returns_lazyframe():
         "bq://proj.ds.t", lazy=True, columns=["id"], engine="polars", client=client
     )
     assert isinstance(lf, pl.LazyFrame)
-    assert "select" in client.queries[0].lower()
+    q = client.queries[0]
+    assert "`id`" in q and "*" not in q  # server-side projection, not select *
+
+
+def test_query_params_types_and_bool_before_int():
+    ps = bq._query_params({"flag": True, "n": 3, "x": 1.5, "s": "a"})
+    types = {p.name: p.type_ for p in ps}
+    assert types == {"flag": "BOOL", "n": "INT64", "x": "FLOAT64", "s": "STRING"}
+
+
+def test_query_params_rejects_unknown_type():
+    with pytest.raises(TypeError):
+        bq._query_params({"d": object()})
+
+
+def test_write_table_disposition_and_job_id():
+    client = FakeBQClient()
+    bq.write_table(
+        pl.DataFrame({"a": [1, 2]}),
+        "bq://proj.ds.t",
+        mode="append",
+        client=client,
+        job_id="job-1",
+    )
+    call = client.load_calls[0]
+    assert call["job_config"].write_disposition == "WRITE_APPEND"
+    assert call["job_id"] == "job-1"
+
+
+def test_write_table_rejects_bad_mode():
+    client = FakeBQClient()
+    with pytest.raises(ValueError):
+        bq.write_table(
+            pl.DataFrame({"a": [1]}), "bq://p.d.t", mode="nope", client=client
+        )
