@@ -3,8 +3,9 @@
 No silent default: the caller picks an invalidation mode. TTL mode re-runs past
 a deadline (live queries); content mode invalidates only on source/body/freshness
 change (deterministic queries). For bq:// sources a `table.modified` freshness
-token is folded into the key so a reloaded table busts the entry even in content
-mode. The shared-GCS tier is a future seam; v0.4 ships the local tier only.
+token is recorded in the manifest and compared on read, so a reloaded table busts
+the entry even in content mode. The shared-GCS tier is a future seam; v0.4 ships
+the local tier only.
 """
 
 from __future__ import annotations
@@ -33,12 +34,11 @@ _TTL_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 def _ttl_seconds(ttl: str | None) -> int | None:
     if ttl is None or ttl == "pinned":
         return None
-    unit = ttl[-1]
-    if unit not in _TTL_UNITS:
+    if not ttl or ttl[-1] not in _TTL_UNITS or not ttl[:-1].isdigit():
         raise ValueError(
             f"bad ttl {ttl!r}; use forms like '30m', '6h', '7d', or 'pinned'"
         )
-    return int(ttl[:-1]) * _TTL_UNITS[unit]
+    return int(ttl[:-1]) * _TTL_UNITS[ttl[-1]]
 
 
 def _function_fingerprint(func: Callable) -> str:
@@ -112,6 +112,10 @@ class CacheStore:
 
     def put(self, key: str, df: pl.DataFrame, *, freshness: str) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
+        # Data is written before the manifest, and get() requires BOTH to exist,
+        # so a torn write reads as a miss. The pair is not a single atomic unit:
+        # on overwrite a reader can briefly see new data + old manifest, which at
+        # worst forces a safe re-run (rows is informational; freshness re-checks).
         data, manifest = self._paths(key)
         self._atomic_parquet(df, data)
         m = Manifest(
@@ -157,6 +161,14 @@ def cache(fn: Callable | None = None, *, ttl: str | None = None, pinned: bool = 
 
     Pick a mode: @cache(ttl="6h") for live data, @cache(pinned=True) for a
     deterministic/pinned computation. Bare @cache raises - the choice is yours.
+
+    Two limitations to know:
+    - The key hashes args via repr(), which is sound for repr-stable scalars
+      (dates, strings, ints). Do NOT pass large arrays / DataFrames as args: their
+      repr is truncated and can collide, serving a stale frame for new input.
+    - Only the decorated function's own source is fingerprinted, not helpers it
+      calls. If you edit a callee, pass `key_extra=` (e.g. a version string) to
+      bust the key; otherwise a "pinned" result can go stale.
     """
     if ttl is None and not pinned:
         raise ValueError(
@@ -191,13 +203,20 @@ def read_cached(source: str, *, cache: str, **read_kwargs) -> Any:
 
     cache="pinned" -> content mode; cache="6h"/etc -> TTL mode. Freshness token
     comes from the source, so a reloaded bq:// table busts even a pinned entry.
+
+    Freshness is best-effort: if the bq:// table.modified lookup transiently fails
+    it returns "" (logged), and a pinned entry is then served regardless of upstream
+    changes. Pinned is not a hard freshness guarantee under BQ flakiness.
     """
     if not settings.cache_enabled:
         from .io import read
 
         return read(source, cache=None, **read_kwargs)
     freshness = source_fingerprint(source)
-    key = _key("read", (source,), read_kwargs, key_extra="pinned")
+    # `lazy` only changes the return wrapper, not the cached bytes; keep it out
+    # of the key so lazy and eager reads share one artifact.
+    key_kwargs = {k: v for k, v in read_kwargs.items() if k != "lazy"}
+    key = _key("read", (source,), key_kwargs, None)
     store = CacheStore.default()
     hit = store.get(key, ttl_seconds=_ttl_seconds(cache), freshness=freshness)
     if hit is not None:
