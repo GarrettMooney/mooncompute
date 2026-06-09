@@ -1,5 +1,7 @@
 """Vertex Gemini async core: bounded concurrency, retry, structured output, and
-a SQLite per-row cache keyed on (model, system, prompt, schema, params)."""
+a SQLite per-row cache. The completion key folds in model, system, prompt, the
+schema's JSON shape, and (temperature, max_tokens); the embed key folds in model,
+text, and output dimensionality."""
 
 from __future__ import annotations
 
@@ -34,10 +36,18 @@ def _db() -> sqlite3.Connection:
     return con
 
 
-def _row_key(prompt: str, *, model: str, system: str | None, schema: Any) -> str:
+def _row_key(
+    prompt: str, *, model: str, system: str | None, schema: Any, extra: Any = None
+) -> str:
     h = hashlib.blake2b(digest_size=20)
-    schema_name = getattr(schema, "__name__", "")
-    for part in (model, system or "", schema_name, prompt):
+    if schema is None:
+        schema_repr = ""
+    else:
+        try:
+            schema_repr = json.dumps(schema.model_json_schema(), sort_keys=True)
+        except Exception:  # noqa: BLE001 - fall back to a stable-ish name
+            schema_repr = getattr(schema, "__name__", repr(schema))
+    for part in (model, system or "", schema_repr, prompt, repr(extra)):
         h.update(part.encode())
     return h.hexdigest()
 
@@ -90,7 +100,13 @@ async def complete_batch(
     async def one(prompt: Any) -> Any:
         if prompt is None:
             return None
-        key = _row_key(prompt, model=model, system=system, schema=schema)
+        key = _row_key(
+            prompt,
+            model=model,
+            system=system,
+            schema=schema,
+            extra=(temperature, max_tokens),
+        )
         cached = _cache_get(con, key)
         if cached is not None:
             return cached
@@ -128,7 +144,7 @@ async def embed_batch(
     async def one(text: Any) -> Any:
         if text is None:
             return None
-        key = _row_key(text, model=model, system=None, schema=None)
+        key = _row_key(text, model=model, system=None, schema=None, extra=dims)
         cached = _cache_get(con, key)
         if cached is not None:
             return cached
@@ -157,11 +173,12 @@ def _vertex_client() -> Any:
 
 
 def _make_call(*, max_tokens: int, temperature: float) -> Callable[..., Awaitable[Any]]:
-    async def call(prompt: str, *, model: str, schema: Any, system: str | None) -> Any:
+    client = _vertex_client()
+
+    async def call(prompt, *, model, schema, system) -> Any:
         from google.genai import errors as genai_errors
         from google.genai import types
 
-        client = _vertex_client()
         cfg = types.GenerateContentConfig(
             system_instruction=system,
             temperature=temperature,
@@ -186,11 +203,12 @@ def _make_call(*, max_tokens: int, temperature: float) -> Callable[..., Awaitabl
 
 
 def _make_embed_call(*, dims: int | None) -> Callable[..., Awaitable[Any]]:
-    async def call(text: str, *, model: str) -> list[float]:
+    client = _vertex_client()
+
+    async def call(text, *, model) -> list[float]:
         from google.genai import errors as genai_errors
         from google.genai import types
 
-        client = _vertex_client()
         cfg = types.EmbedContentConfig(output_dimensionality=dims) if dims else None
         try:
             resp = await client.aio.models.embed_content(

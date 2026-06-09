@@ -12,6 +12,10 @@ def test_per_row_cache_only_calls_misses(tmp_path, monkeypatch):
         return prompt.upper()
 
     prompts = ["a", "b", "a"]  # "a" repeats -> one cached
+    # Note: dedup here relies on cooperative scheduling (fake_call has no await,
+    # so the first "a" caches before the second starts). Under real awaiting I/O
+    # both "a" rows could miss before either writes; INSERT OR REPLACE keeps that
+    # correct, just not call-deduplicated. In-flight coalescing is out of scope.
     out = asyncio.run(
         _gemini.complete_batch(
             prompts,
@@ -105,3 +109,65 @@ def test_row_failure_isolated_to_null(tmp_path, monkeypatch):
         )
     )
     assert out == ["A", None, "C"]  # b failed -> null, others fine
+
+
+def test_embed_batch_caches_misses(tmp_path, monkeypatch):
+    monkeypatch.setattr(_gemini, "_DB_PATH", tmp_path / "llm.db")
+    seen = []
+
+    async def fake_embed(text, *, model):
+        seen.append(text)
+        return [0.1, 0.2]
+
+    out = asyncio.run(
+        _gemini.embed_batch(
+            ["x", "y", "x"],
+            model="m",
+            concurrency=4,
+            dims=2,
+            max_retries=1,
+            call=fake_embed,
+        )
+    )
+    assert out == [[0.1, 0.2], [0.1, 0.2], [0.1, 0.2]]
+    assert seen.count("x") == 1  # second "x" served from cache
+
+
+def test_embed_batch_none_passthrough(tmp_path, monkeypatch):
+    monkeypatch.setattr(_gemini, "_DB_PATH", tmp_path / "llm.db")
+
+    async def fake_embed(text, *, model):
+        return [0.0, 0.0]
+
+    out = asyncio.run(
+        _gemini.embed_batch(
+            [None, "y"],
+            model="m",
+            concurrency=2,
+            dims=2,
+            max_retries=0,
+            call=fake_embed,
+        )
+    )
+    assert out == [None, [0.0, 0.0]]
+
+
+def test_embed_batch_dims_busts_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(_gemini, "_DB_PATH", tmp_path / "llm.db")
+    seen = []
+
+    async def fake_embed(text, *, model):
+        seen.append(text)
+        return [0.0, 0.0]
+
+    asyncio.run(
+        _gemini.embed_batch(
+            ["x"], model="m", concurrency=1, dims=2, max_retries=0, call=fake_embed
+        )
+    )
+    asyncio.run(
+        _gemini.embed_batch(
+            ["x"], model="m", concurrency=1, dims=4, max_retries=0, call=fake_embed
+        )
+    )
+    assert seen == ["x", "x"]  # different dims is a different key, not a hit
