@@ -171,3 +171,20 @@ def test_embed_batch_dims_busts_cache(tmp_path, monkeypatch):
         )
     )
     assert seen == ["x", "x"]  # different dims is a different key, not a hit
+
+
+def test_vertex_client_uses_llm_location(monkeypatch):
+    from google import genai
+
+    captured = {}
+    monkeypatch.setattr(_gemini, "materialize_gcp_creds", lambda: None)
+    monkeypatch.setattr(genai, "Client", lambda **kw: captured.update(kw) or "client")
+    # Patch the settings object _gemini actually holds (other tests reload the
+    # config module, which would otherwise desync a fresh config.settings).
+    monkeypatch.setattr(_gemini.settings, "project", "p")
+    monkeypatch.setattr(_gemini.settings, "location", "US")  # BQ loc must NOT be used
+    monkeypatch.setattr(_gemini.settings, "llm_location", "europe-west4")
+
+    _gemini._vertex_client()
+    assert captured["location"] == "europe-west4"
+    assert captured["project"] == "p"

@@ -6,6 +6,7 @@ import mooncompute.config as cfg
 def test_defaults():
     s = cfg.Settings()
     assert s.location == "US"
+    assert s.llm_location == "us-central1"  # Vertex region, distinct from BQ location
     assert s.llm_default_model == "gemini-2.5-flash"
     assert s.llm_embed_model == "gemini-embedding-001"
     assert s.llm_concurrency == 16

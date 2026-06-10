@@ -16,13 +16,16 @@ from typing import Literal
 class Settings:
     # --- GCP ---
     project: str | None = None
-    location: str = "US"
+    location: str = "US"  # BigQuery location (a multi-region like "US" or "EU")
 
     # --- cache ---
     cache_dir: str = "~/.mooncompute/cache"
     cache_enabled: bool = True
 
     # --- llm ---
+    # Vertex needs a region (e.g. "us-central1"), distinct from the BigQuery
+    # `location` multi-region, so they are separate fields.
+    llm_location: str = "us-central1"
     llm_default_model: str = "gemini-2.5-flash"
     llm_embed_model: str = "gemini-embedding-001"
     llm_concurrency: int = 16

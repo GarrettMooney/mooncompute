@@ -170,7 +170,7 @@ def _vertex_client() -> Any:
 
     materialize_gcp_creds()
     return genai.Client(
-        vertexai=True, project=settings.project, location=settings.location
+        vertexai=True, project=settings.project, location=settings.llm_location
     )
 
 
